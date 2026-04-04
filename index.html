@@ -181,7 +181,10 @@
   <script>
     (function () {
       const TOTAL_TARGETS = 124;
-      /** 同时注册的 NFT 数量过大时，手机极易 OOM 崩溃；桌面也可能黑屏卡顿。?max=N 覆盖（1–124）。 */
+      /**
+       * 同时注册的 NFT 过多时手机易 OOM；地址 ?max=N 可强制数量（1–124）。
+       * 未指定时：触控/窄屏用保守默认；若浏览器提供 deviceMemory 则略放宽。
+       */
       function getTargetIdsToLoad() {
         const params = new URLSearchParams(window.location.search);
         const raw = params.get("max");
@@ -192,7 +195,14 @@
         } else {
           const narrow = window.matchMedia("(max-width: 768px)").matches;
           const coarse = window.matchMedia("(pointer: coarse)").matches;
-          if (narrow || coarse) cap = Math.min(TOTAL_TARGETS, 32);
+          if (narrow || coarse) {
+            const gb =
+              typeof navigator.deviceMemory === "number" ? navigator.deviceMemory : 0;
+            if (gb >= 8) cap = Math.min(TOTAL_TARGETS, 124);
+            else if (gb >= 6) cap = Math.min(TOTAL_TARGETS, 80);
+            else if (gb >= 4) cap = Math.min(TOTAL_TARGETS, 48);
+            else cap = Math.min(TOTAL_TARGETS, 32);
+          }
         }
         const ids = [];
         for (let i = 1; i <= cap; i += 1) ids.push(pad3(i));
@@ -474,14 +484,18 @@
         if (targetIds.length === 0) {
           throw new Error("未找到可用识别文件，请先生成 images/*.fset 文件");
         }
+        const tipEl = document.getElementById("top-tip");
         if (targetIds.length < TOTAL_TARGETS) {
-          const tip = document.getElementById("top-tip");
-          tip.textContent =
-            "为省内存已加载 " +
-            targetIds.length +
-            " / " +
+          const lastId = targetIds[targetIds.length - 1];
+          tipEl.innerHTML =
+            "请扫描展品图（<strong>仅编号 001–" +
+            lastId +
+            "</strong> 有效，其它图未加载）" +
+            '<br><span style="font-size:13px;opacity:0.88;font-weight:normal">要识别全部 ' +
             TOTAL_TARGETS +
-            " 个识别图；要全部加载请在地址后加 ?max=124（高端机，可能卡顿或崩溃）";
+            ' 张：地址后加 <code style="font-size:12px">?max=124</code>（可能卡顿或崩溃）</span>';
+        } else {
+          tipEl.textContent = "请扫描展品图片查看细节";
         }
         updateProgress(0, targetIds.length);
         await buildTargets(targetIds);
