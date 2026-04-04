@@ -276,6 +276,12 @@
         return ids;
       }
 
+      function yieldToPaint() {
+        return new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+      }
+
       async function buildTargets(targetIds) {
         const texLoader = new THREE.TextureLoader();
         const loadTexture = (url) =>
@@ -295,26 +301,43 @@
             );
           });
 
-        loadingTextEl.textContent = "加载识别图中...";
+        const batchSize = 8;
+        const textures = [];
+        loadingTextEl.textContent = "加载展示图片（并行）...";
+        updateProgress(0, targetIds.length);
+        await yieldToPaint();
+
+        for (let i = 0; i < targetIds.length; i += batchSize) {
+          const slice = targetIds.slice(i, i + batchSize);
+          const batch = await Promise.all(
+            slice.map((id) => loadTexture("display/" + id + ".jpg"))
+          );
+          for (let j = 0; j < batch.length; j += 1) {
+            textures.push(batch[j]);
+          }
+          updateProgress(textures.length, targetIds.length);
+          await yieldToPaint();
+        }
+
+        loadingTextEl.textContent = "初始化 NFT 识别（较慢，请稍候）...";
         for (let i = 0; i < targetIds.length; i += 1) {
           const id = targetIds[i];
           const numericId = Number(id);
+          loadingTextEl.textContent = "注册识别图 " + id + " (" + (i + 1) + "/" + targetIds.length + ")";
+          updateProgress(i, targetIds.length);
+          await yieldToPaint();
+
           const markerRoot = new THREE.Group();
           scene.add(markerRoot);
           MARKER_ROOTS.push(markerRoot);
           TARGET_IDS.push(numericId);
 
-          /* 
-            AR.js NFT 模式要求 descriptorsUrl 指向同名前缀文件：
-            例如 images/001 对应 images/001.fset / images/001.fset3 / images/001.iset
-          */
           new THREEx.ArMarkerControls(arContext, markerRoot, {
             type: "nft",
             descriptorsUrl: "images/" + id
           });
 
-          const texture = await loadTexture("display/" + id + ".jpg");
-          const panel = buildDisplayPanel(texture);
+          const panel = buildDisplayPanel(textures[i]);
           markerRoot.add(panel);
           PANEL_GROUPS.push(panel);
 
@@ -405,8 +428,16 @@
           nftMarkerType: "nft"
         });
 
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
+          const t = setTimeout(() => {
+            reject(
+              new Error(
+                "AR 相机参数下载超时（可能被网络拦截）。请换网络、关代理重试，或用手机 4G/5G 打开同一链接。"
+              )
+            );
+          }, 45000);
           arContext.init(() => {
+            clearTimeout(t);
             camera.projectionMatrix.copy(arContext.getProjectionMatrix());
             resolve();
           });
