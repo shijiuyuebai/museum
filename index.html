@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <title>Museum AR</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    #ar-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover;
+    }
+
+    #top-tip {
+      position: fixed;
+      top: env(safe-area-inset-top, 0);
+      left: 0;
+      right: 0;
+      z-index: 20;
+      padding: 14px 16px 12px;
+      text-align: center;
+      color: #fff;
+      font-size: 16px;
+      letter-spacing: 0.5px;
+      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0));
+      pointer-events: none;
+    }
+
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.88);
+      color: #fff;
+      text-align: center;
+      padding: 20px;
+    }
+
+    #loading-card {
+      width: min(88vw, 360px);
+      background: rgba(18, 18, 18, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 12px;
+      padding: 18px 16px 16px;
+      backdrop-filter: blur(4px);
+    }
+
+    #loading-text {
+      font-size: 15px;
+      margin-bottom: 12px;
+      color: #f0f0f0;
+    }
+
+    #progress-track {
+      width: 100%;
+      height: 9px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      overflow: hidden;
+    }
+
+    #progress-bar {
+      width: 0%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #5de0e6, #7f7fd5);
+      transition: width 0.22s ease;
+    }
+
+    #progress-label {
+      margin-top: 8px;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    #close-btn {
+      position: fixed;
+      right: 12px;
+      bottom: calc(12px + env(safe-area-inset-bottom, 0));
+      z-index: 25;
+      display: none;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      background: rgba(0, 0, 0, 0.58);
+      color: #fff;
+      border-radius: 20px;
+      padding: 10px 16px;
+      font-size: 14px;
+      line-height: 1;
+      backdrop-filter: blur(3px);
+    }
+
+    #close-btn:active {
+      transform: scale(0.98);
+    }
+
+    #boot {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(2px);
+    }
+
+    #start-btn {
+      border: 1px solid rgba(255, 255, 255, 0.75);
+      background: rgba(10, 10, 10, 0.82);
+      color: #fff;
+      border-radius: 999px;
+      padding: 13px 22px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="ar-container"></div>
+  <div id="top-tip">请扫描展品图片查看细节</div>
+
+  <div id="loading">
+    <div id="loading-card">
+      <div id="loading-text">加载识别图中...</div>
+      <div id="progress-track"><div id="progress-bar"></div></div>
+      <div id="progress-label">0 / 124</div>
+    </div>
+  </div>
+  <div id="boot">
+    <button id="start-btn" type="button">点击开始 AR</button>
+  </div>
+
+  <button id="close-btn" type="button">关闭当前显示</button>
+
+  <script src="./vendor/three.min.js"></script>
+  <script src="./vendor/ar.js"></script>
+  <script src="./vendor/ar-threex.js"></script>
+  <script>
+    (function () {
+      const TOTAL_TARGETS = 124;
+      const TARGET_IDS = [];
+      const MARKER_ROOTS = [];
+      const PANEL_GROUPS = [];
+      const MANUAL_HIDDEN = new Set();
+      let activeId = null;
+      let renderer;
+      let scene;
+      let camera;
+      let arSource;
+      let arContext;
+      let rafId = 0;
+
+      const loadingEl = document.getElementById("loading");
+      const progressBarEl = document.getElementById("progress-bar");
+      const progressLabelEl = document.getElementById("progress-label");
+      const closeBtnEl = document.getElementById("close-btn");
+      const containerEl = document.getElementById("ar-container");
+      const loadingTextEl = document.getElementById("loading-text");
+      const bootEl = document.getElementById("boot");
+      const startBtnEl = document.getElementById("start-btn");
+
+      function pad3(num) {
+        return String(num).padStart(3, "0");
+      }
+
+      function updateProgress(current, total) {
+        const percent = Math.min(100, Math.round((current / total) * 100));
+        progressBarEl.style.width = percent + "%";
+        progressLabelEl.textContent = current + " / " + total;
+      }
+
+      function hideLoading() {
+        loadingEl.style.display = "none";
+      }
+
+      function showLoadingError(message) {
+        loadingEl.style.display = "flex";
+        loadingTextEl.textContent = message;
+        progressLabelEl.textContent = "请在系统浏览器中打开并允许摄像头权限";
+      }
+
+      async function ensureCameraPermission() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("当前浏览器不支持摄像头接口，请改用手机系统浏览器");
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false
+        });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      function showCloseButton(show) {
+        closeBtnEl.style.display = show ? "block" : "none";
+      }
+
+      function buildDisplayPanel(texture) {
+        const panelGroup = new THREE.Group();
+        panelGroup.visible = false;
+        panelGroup.position.set(0, 0.9, 0);
+
+        const frameW = 1.2;
+        const frameH = 0.9;
+        const frameGeom = new THREE.PlaneGeometry(frameW, frameH);
+        const frameMat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.45,
+          side: THREE.DoubleSide
+        });
+        const frameMesh = new THREE.Mesh(frameGeom, frameMat);
+        frameMesh.renderOrder = 1;
+        panelGroup.add(frameMesh);
+
+        const borderGeom = new THREE.EdgesGeometry(frameGeom);
+        const borderMat = new THREE.LineBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.9
+        });
+        const border = new THREE.LineSegments(borderGeom, borderMat);
+        border.renderOrder = 2;
+        border.position.z = 0.001;
+        panelGroup.add(border);
+
+        const imgMat = new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          opacity: 1,
+          side: THREE.DoubleSide
+        });
+        const imgGeom = new THREE.PlaneGeometry(1.05, 0.75);
+        const imgMesh = new THREE.Mesh(imgGeom, imgMat);
+        imgMesh.position.z = 0.002;
+        imgMesh.renderOrder = 3;
+        panelGroup.add(imgMesh);
+
+        return panelGroup;
+      }
+
+      function getAllTargets() {
+        const ids = [];
+        for (let i = 1; i <= TOTAL_TARGETS; i += 1) {
+          ids.push(pad3(i));
+        }
+        return ids;
+      }
+
+      async function buildTargets(targetIds) {
+        const texLoader = new THREE.TextureLoader();
+        const loadTexture = (url) =>
+          new Promise((resolve) => {
+            texLoader.load(
+              url,
+              (tex) => {
+                tex.minFilter = THREE.LinearFilter;
+                tex.magFilter = THREE.LinearFilter;
+                resolve(tex);
+              },
+              undefined,
+              () => {
+                const fallback = new THREE.CanvasTexture(document.createElement("canvas"));
+                resolve(fallback);
+              }
+            );
+          });
+
+        loadingTextEl.textContent = "加载识别图中...";
+        for (let i = 0; i < targetIds.length; i += 1) {
+          const id = targetIds[i];
+          const numericId = Number(id);
+          const markerRoot = new THREE.Group();
+          scene.add(markerRoot);
+          MARKER_ROOTS.push(markerRoot);
+          TARGET_IDS.push(numericId);
+
+          /* 
+            AR.js NFT 模式要求 descriptorsUrl 指向同名前缀文件：
+            例如 images/001 对应 images/001.fset / images/001.fset3 / images/001.iset
+          */
+          new THREEx.ArMarkerControls(arContext, markerRoot, {
+            type: "nft",
+            descriptorsUrl: "images/" + id
+          });
+
+          const texture = await loadTexture("display/" + id + ".jpg");
+          const panel = buildDisplayPanel(texture);
+          markerRoot.add(panel);
+          PANEL_GROUPS.push(panel);
+
+          updateProgress(i + 1, targetIds.length);
+        }
+      }
+
+      function hideAllPanels() {
+        for (let i = 0; i < PANEL_GROUPS.length; i += 1) {
+          PANEL_GROUPS[i].visible = false;
+        }
+      }
+
+      function pickVisibleId() {
+        for (let i = 0; i < MARKER_ROOTS.length; i += 1) {
+          if (MARKER_ROOTS[i].visible) return TARGET_IDS[i] || null;
+        }
+        return null;
+      }
+
+      function setActive(id) {
+        hideAllPanels();
+        if (!id) {
+          activeId = null;
+          showCloseButton(false);
+          return;
+        }
+        activeId = id;
+        const idx = TARGET_IDS.indexOf(id);
+        if (idx >= 0) PANEL_GROUPS[idx].visible = true;
+        showCloseButton(true);
+      }
+
+      function onResize() {
+        if (!arSource || !renderer || !arContext) return;
+        arSource.onResizeElement();
+        arSource.copyElementSizeTo(renderer.domElement);
+        if (arContext.arController) {
+          arSource.copyElementSizeTo(arContext.arController.canvas);
+        }
+      }
+
+      function animate() {
+        rafId = requestAnimationFrame(animate);
+        if (arSource.ready) {
+          arContext.update(arSource.domElement);
+        }
+
+        const visibleId = pickVisibleId();
+        if (visibleId && visibleId !== activeId) {
+          MANUAL_HIDDEN.delete(visibleId);
+          setActive(visibleId);
+        } else if (visibleId && activeId === visibleId && MANUAL_HIDDEN.has(visibleId)) {
+          setActive(null);
+        } else if (!visibleId) {
+          setActive(null);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      async function init() {
+        await ensureCameraPermission();
+        scene = new THREE.Scene();
+        camera = new THREE.Camera();
+        scene.add(camera);
+
+        renderer = new THREE.WebGLRenderer({
+          antialias: true,
+          alpha: true,
+          powerPreference: "high-performance"
+        });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        containerEl.appendChild(renderer.domElement);
+
+        arSource = new THREEx.ArToolkitSource({
+          sourceType: "webcam"
+        });
+
+        arContext = new THREEx.ArToolkitContext({
+          cameraParametersUrl: "https://raw.githack.com/AR-js-org/AR.js/master/three.js/data/camera_para.dat",
+          detectionMode: "mono",
+          maxDetectionRate: 30,
+          canvasWidth: 640,
+          canvasHeight: 480,
+          // 使用 AR.js NFT worker
+          nftMarkerType: "nft"
+        });
+
+        await new Promise((resolve) => {
+          arContext.init(() => {
+            camera.projectionMatrix.copy(arContext.getProjectionMatrix());
+            resolve();
+          });
+        });
+
+        const targetIds = getAllTargets();
+        if (targetIds.length === 0) {
+          throw new Error("未找到可用识别文件，请先生成 images/*.fset 文件");
+        }
+        updateProgress(0, targetIds.length);
+        await buildTargets(targetIds);
+
+        await new Promise((resolve, reject) => {
+          let finished = false;
+          const timer = setTimeout(() => {
+            if (finished) return;
+            finished = true;
+            reject(new Error("摄像头初始化超时，请确认已允许相机权限，并使用系统浏览器打开链接"));
+          }, 30000);
+
+          arSource.init(() => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            onResize();
+            resolve();
+          });
+        });
+
+        hideLoading();
+        animate();
+      }
+
+      closeBtnEl.addEventListener("click", () => {
+        if (activeId) {
+          MANUAL_HIDDEN.add(activeId);
+        }
+        setActive(null);
+      });
+
+      window.addEventListener("resize", onResize);
+      window.addEventListener("orientationchange", () => {
+        setTimeout(onResize, 200);
+      });
+
+      window.addEventListener("beforeunload", () => {
+        if (rafId) cancelAnimationFrame(rafId);
+      });
+
+      startBtnEl.addEventListener("click", () => {
+        bootEl.style.display = "none";
+        startBtnEl.disabled = true;
+        startBtnEl.textContent = "正在启动...";
+        init().catch((err) => {
+          const msg = String(err && err.message ? err.message : err);
+          showLoadingError("初始化失败");
+          progressLabelEl.textContent = msg;
+          bootEl.style.display = "flex";
+          startBtnEl.disabled = false;
+          startBtnEl.textContent = "点击重试";
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
