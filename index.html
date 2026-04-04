@@ -29,11 +29,24 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      z-index: 0;
+      background: #000;
     }
 
-    canvas {
+    /* AR.js 默认把视频 z-index:-2 挂在 body 上，易被固定层盖住导致整屏发黑；由脚本移入 #ar-container 后使用下列样式 */
+    #ar-container video#arjs-video {
       position: absolute;
       inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+
+    #ar-container canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
       width: 100% !important;
       height: 100% !important;
       object-fit: cover;
@@ -168,6 +181,24 @@
   <script>
     (function () {
       const TOTAL_TARGETS = 124;
+      /** 同时注册的 NFT 数量过大时，手机极易 OOM 崩溃；桌面也可能黑屏卡顿。?max=N 覆盖（1–124）。 */
+      function getTargetIdsToLoad() {
+        const params = new URLSearchParams(window.location.search);
+        const raw = params.get("max");
+        let cap = TOTAL_TARGETS;
+        if (raw !== null && raw !== "") {
+          const n = parseInt(raw, 10);
+          if (!Number.isNaN(n)) cap = Math.min(TOTAL_TARGETS, Math.max(1, n));
+        } else {
+          const narrow = window.matchMedia("(max-width: 768px)").matches;
+          const coarse = window.matchMedia("(pointer: coarse)").matches;
+          if (narrow || coarse) cap = Math.min(TOTAL_TARGETS, 32);
+        }
+        const ids = [];
+        for (let i = 1; i <= cap; i += 1) ids.push(pad3(i));
+        return ids;
+      }
+
       const TARGET_IDS = [];
       const MARKER_ROOTS = [];
       const PANEL_GROUPS = [];
@@ -266,14 +297,6 @@
         panelGroup.add(imgMesh);
 
         return panelGroup;
-      }
-
-      function getAllTargets() {
-        const ids = [];
-        for (let i = 1; i <= TOTAL_TARGETS; i += 1) {
-          ids.push(pad3(i));
-        }
-        return ids;
       }
 
       function yieldToPaint() {
@@ -405,13 +428,15 @@
         camera = new THREE.Camera();
         scene.add(camera);
 
+        const touchLike = window.matchMedia("(pointer: coarse)").matches;
         renderer = new THREE.WebGLRenderer({
-          antialias: true,
+          antialias: !touchLike,
           alpha: true,
-          powerPreference: "high-performance"
+          powerPreference: touchLike ? "default" : "high-performance"
         });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0);
         containerEl.appendChild(renderer.domElement);
 
         arSource = new THREEx.ArToolkitSource({
@@ -445,9 +470,18 @@
           });
         });
 
-        const targetIds = getAllTargets();
+        const targetIds = getTargetIdsToLoad();
         if (targetIds.length === 0) {
           throw new Error("未找到可用识别文件，请先生成 images/*.fset 文件");
+        }
+        if (targetIds.length < TOTAL_TARGETS) {
+          const tip = document.getElementById("top-tip");
+          tip.textContent =
+            "为省内存已加载 " +
+            targetIds.length +
+            " / " +
+            TOTAL_TARGETS +
+            " 个识别图；要全部加载请在地址后加 ?max=124（高端机，可能卡顿或崩溃）";
         }
         updateProgress(0, targetIds.length);
         await buildTargets(targetIds);
@@ -464,6 +498,12 @@
             if (finished) return;
             finished = true;
             clearTimeout(timer);
+            const v = arSource.domElement;
+            if (v && v.parentNode) {
+              containerEl.insertBefore(v, renderer.domElement);
+              v.style.zIndex = "0";
+            }
+            renderer.domElement.style.zIndex = "1";
             onResize();
             resolve();
           });
