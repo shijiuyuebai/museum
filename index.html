@@ -418,24 +418,26 @@
           sourceType: "webcam"
         });
 
+        const camUrl = new URL("vendor/camera_para.dat", window.location.href).href;
+        const camRes = await fetch(camUrl, { cache: "force-cache" });
+        if (!camRes.ok) {
+          throw new Error("无法加载 " + camUrl + "（HTTP " + camRes.status + "），请确认已 git push vendor/camera_para.dat");
+        }
+        const cameraParametersData = new Uint8Array(await camRes.arrayBuffer());
+
         arContext = new THREEx.ArToolkitContext({
-          cameraParametersUrl: "https://raw.githack.com/AR-js-org/AR.js/master/three.js/data/camera_para.dat",
+          // 传入 Uint8Array 时 AR.js 内部不再发 HTTP 请求，可避免误用 raw.githubusercontent.com 等失效地址
+          cameraParametersUrl: cameraParametersData,
           detectionMode: "mono",
           maxDetectionRate: 30,
           canvasWidth: 640,
-          canvasHeight: 480,
-          // 使用 AR.js NFT worker
-          nftMarkerType: "nft"
+          canvasHeight: 480
         });
 
         await new Promise((resolve, reject) => {
           const t = setTimeout(() => {
-            reject(
-              new Error(
-                "AR 相机参数下载超时（可能被网络拦截）。请换网络、关代理重试，或用手机 4G/5G 打开同一链接。"
-              )
-            );
-          }, 45000);
+            reject(new Error("AR 引擎初始化超时，请刷新重试或换 Chrome。"));
+          }, 90000);
           arContext.init(() => {
             clearTimeout(t);
             camera.projectionMatrix.copy(arContext.getProjectionMatrix());
