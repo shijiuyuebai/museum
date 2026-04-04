@@ -173,20 +173,51 @@
     <button id="start-btn" type="button">点击开始 AR</button>
   </div>
 
+  <div id="script-load-fail" style="display:none;position:fixed;inset:0;z-index:100;padding:24px 20px;background:#1a1a1a;color:#fff;font-size:15px;line-height:1.55;overflow:auto;">
+    <p style="margin:0 0 12px;"><strong>页面脚本未能加载</strong>（多为当前网络访问 GitHub Pages 不稳定或被拦截）。</p>
+    <p style="margin:0 0 12px;opacity:0.9;">可尝试：切换 <strong>移动数据</strong> / 其它 Wi‑Fi、关闭代理后再刷新；若在微信内，请点右上角 <strong>在浏览器中打开</strong>。</p>
+    <p style="margin:0;opacity:0.85;font-size:14px;">也可将本站镜像到国内可访问的 Pages（如 Gitee / Cloudflare Pages）后使用新地址。</p>
+  </div>
+
   <button id="close-btn" type="button">关闭当前显示</button>
 
-  <script src="./vendor/three.min.js"></script>
-  <script src="./vendor/ar.js"></script>
-  <script src="./vendor/ar-threex.js"></script>
+  <script>
+    window.__museumArScriptFail = function () {
+      var el = document.getElementById("script-load-fail");
+      if (el) el.style.display = "block";
+    };
+  </script>
+  <script src="./vendor/three.min.js" onerror="__museumArScriptFail()"></script>
+  <script src="./vendor/ar.js" onerror="__museumArScriptFail()"></script>
+  <script src="./vendor/ar-threex.js" onerror="__museumArScriptFail()"></script>
   <script>
     (function () {
       const TOTAL_TARGETS = 124;
+      const AR_DEBUG = new URLSearchParams(window.location.search).get("debug") === "1";
+      let arDebugLastVisible = null;
+
+      /** NFT 数量多时降低检测帧率，减轻多 Worker 积压（否则易「有画面但不识别」）。 */
+      function nftDetectionRate(markerCount) {
+        if (markerCount <= 1) return 30;
+        if (markerCount <= 8) return 24;
+        if (markerCount <= 24) return 16;
+        return 12;
+      }
+
       /**
        * 同时注册的 NFT 过多时手机易 OOM；地址 ?max=N 可强制数量（1–124）。
-       * 未指定时：触控/窄屏用保守默认；若浏览器提供 deviceMemory 则略放宽。
+       * ?only=7 或 ?only=007：只注册单张，用于电脑端排查识别。
+       * 未指定时：触控/窄屏按内存放宽；桌面默认最多 40 个并发（?max=124 可全开）。
        */
       function getTargetIdsToLoad() {
         const params = new URLSearchParams(window.location.search);
+        const onlyRaw = params.get("only");
+        if (onlyRaw !== null && onlyRaw !== "") {
+          const n = parseInt(onlyRaw, 10);
+          if (!Number.isNaN(n) && n >= 1 && n <= TOTAL_TARGETS) {
+            return [pad3(n)];
+          }
+        }
         const raw = params.get("max");
         let cap = TOTAL_TARGETS;
         if (raw !== null && raw !== "") {
@@ -202,6 +233,9 @@
             else if (gb >= 6) cap = Math.min(TOTAL_TARGETS, 80);
             else if (gb >= 4) cap = Math.min(TOTAL_TARGETS, 48);
             else cap = Math.min(TOTAL_TARGETS, 32);
+          } else {
+            // 桌面同时注册过多 NFT 时，每个标记一个 Worker 每帧抓图，CPU 易打满导致「有画面但永远识别不到」；未指定 ?max= 时默认限制并发
+            cap = Math.min(TOTAL_TARGETS, 40);
           }
         }
         const ids = [];
@@ -315,6 +349,28 @@
         });
       }
 
+      /** 启动前检查首个 NFT 是否可访问；否则摄像头正常也会永远识别不到。 */
+      async function assertNftArtifactsReachable(sampleId) {
+        const exts = [".fset", ".fset3", ".iset"];
+        const root = new URL(window.location.href);
+        for (let e = 0; e < exts.length; e += 1) {
+          const u = new URL("images/" + sampleId + exts[e], root).href;
+          let res = await fetch(u, { method: "HEAD", cache: "no-store" });
+          if (res.status === 405 || res.status === 501) {
+            res = await fetch(u, { method: "GET", cache: "no-store" });
+          }
+          if (!res.ok) {
+            throw new Error(
+              "NFT 数据无法访问 " +
+                u +
+                "（HTTP " +
+                res.status +
+                "）。请确认已部署 images 下 .fset/.fset3/.iset；若手机提示无法打开整站，多为网络访问 github.io 受阻，请换网络或镜像部署。"
+            );
+          }
+        }
+      }
+
       async function buildTargets(targetIds) {
         const texLoader = new THREE.TextureLoader();
         const loadTexture = (url) =>
@@ -420,6 +476,10 @@
         }
 
         const visibleId = pickVisibleId();
+        if (AR_DEBUG && visibleId !== arDebugLastVisible) {
+          arDebugLastVisible = visibleId;
+          console.log("[MuseumAR] 当前可见标记编号:", visibleId);
+        }
         if (visibleId && visibleId !== activeId) {
           MANUAL_HIDDEN.delete(visibleId);
           setActive(visibleId);
@@ -460,11 +520,16 @@
         }
         const cameraParametersData = new Uint8Array(await camRes.arrayBuffer());
 
+        const targetIds = getTargetIdsToLoad();
+        if (targetIds.length === 0) {
+          throw new Error("未找到可用识别文件，请先生成 images/*.fset 文件");
+        }
+
         arContext = new THREEx.ArToolkitContext({
           // 传入 Uint8Array 时 AR.js 内部不再发 HTTP 请求，可避免误用 raw.githubusercontent.com 等失效地址
           cameraParametersUrl: cameraParametersData,
           detectionMode: "mono",
-          maxDetectionRate: 30,
+          maxDetectionRate: nftDetectionRate(targetIds.length),
           canvasWidth: 640,
           canvasHeight: 480
         });
@@ -480,12 +545,14 @@
           });
         });
 
-        const targetIds = getTargetIdsToLoad();
-        if (targetIds.length === 0) {
-          throw new Error("未找到可用识别文件，请先生成 images/*.fset 文件");
-        }
         const tipEl = document.getElementById("top-tip");
-        if (targetIds.length < TOTAL_TARGETS) {
+        const pageParams = new URLSearchParams(window.location.search);
+        if (pageParams.get("only")) {
+          tipEl.innerHTML =
+            "调试模式：仅加载 <strong>" +
+            targetIds[0] +
+            "</strong> 号识别图；正常使用时去掉地址栏里的 <code style=\"font-size:12px\">?only=</code>";
+        } else if (targetIds.length < TOTAL_TARGETS) {
           const lastId = targetIds[targetIds.length - 1];
           tipEl.innerHTML =
             "请扫描展品图（<strong>仅编号 001–" +
@@ -493,11 +560,12 @@
             "</strong> 有效，其它图未加载）" +
             '<br><span style="font-size:13px;opacity:0.88;font-weight:normal">要识别全部 ' +
             TOTAL_TARGETS +
-            ' 张：地址后加 <code style="font-size:12px">?max=124</code>（可能卡顿或崩溃）</span>';
+            ' 张：加 <code style="font-size:12px">?max=124</code>（可能卡顿）。识别异常时可试 <code style="font-size:12px">?only=001</code> 单图排查。</span>';
         } else {
           tipEl.textContent = "请扫描展品图片查看细节";
         }
         updateProgress(0, targetIds.length);
+        await assertNftArtifactsReachable(targetIds[0]);
         await buildTargets(targetIds);
 
         await new Promise((resolve, reject) => {
