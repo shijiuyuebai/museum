@@ -4,3 +4,4 @@ images-nft-src/
 images-part1/
 *.log
 .DS_Store
+images/*.jpg
