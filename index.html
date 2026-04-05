@@ -207,7 +207,7 @@
       /**
        * 同时注册的 NFT 过多时手机易 OOM；地址 ?max=N 可强制数量（1–124）。
        * ?only=7 或 ?only=007：只注册单张，用于电脑端排查识别。
-       * 未指定时：触控/窄屏按内存放宽；桌面默认最多 40 个并发（?max=124 可全开）。
+       * 未指定时：手机默认少量加载防崩溃；桌面默认 40（?max=124 全开）。
        */
       function getTargetIdsToLoad() {
         const params = new URLSearchParams(window.location.search);
@@ -229,10 +229,12 @@
           if (narrow || coarse) {
             const gb =
               typeof navigator.deviceMemory === "number" ? navigator.deviceMemory : 0;
-            if (gb >= 8) cap = Math.min(TOTAL_TARGETS, 124);
-            else if (gb >= 6) cap = Math.min(TOTAL_TARGETS, 80);
-            else if (gb >= 4) cap = Math.min(TOTAL_TARGETS, 48);
-            else cap = Math.min(TOTAL_TARGETS, 32);
+            // 很多手机不提供 deviceMemory（gb=0），仍用 32 个 NFT 易 OOM 直接崩溃，默认改小
+            if (gb === 0) cap = Math.min(TOTAL_TARGETS, 8);
+            else if (gb >= 8) cap = Math.min(TOTAL_TARGETS, 124);
+            else if (gb >= 6) cap = Math.min(TOTAL_TARGETS, 64);
+            else if (gb >= 4) cap = Math.min(TOTAL_TARGETS, 32);
+            else cap = Math.min(TOTAL_TARGETS, 12);
           } else {
             // 桌面同时注册过多 NFT 时，每个标记一个 Worker 每帧抓图，CPU 易打满导致「有画面但永远识别不到」；未指定 ?max= 时默认限制并发
             cap = Math.min(TOTAL_TARGETS, 40);
