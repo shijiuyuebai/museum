@@ -5,3 +5,6 @@ images-part1/
 *.log
 .DS_Store
 images/*.jpg
+
+# 本地截屏勿提交
+Screenshot_*.jpg

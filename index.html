@@ -351,8 +351,8 @@
             else if (gb >= 4) cap = Math.min(TOTAL_TARGETS, 32);
             else cap = Math.min(TOTAL_TARGETS, 12);
           } else {
-            // 桌面同时注册过多 NFT 时，每个标记一个 Worker 每帧抓图，CPU 易打满导致「有画面但永远识别不到」；未指定 ?max= 时默认限制并发
-            cap = Math.min(TOTAL_TARGETS, 40);
+            // 桌面默认加载全部编号，避免「扫 041 以后永远无反应」被误认为坏了；若卡顿可手动加 ?max=40 等缩小范围
+            cap = TOTAL_TARGETS;
           }
         }
         const ids = [];
@@ -695,7 +695,7 @@
               const vh = vid && vid.videoHeight ? vid.videoHeight : 0;
               let line1 = visibleId
                 ? "已识别到编号 " + pad3(visibleId)
-                : "尚未识别：图要大、要亮；横屏拿手机试试；确认扫的是当前页「只识别」的那张编号";
+                : "尚未识别：图要大、要亮；横屏试试。若扫的是 041/096 等「大号」，请看顶栏是否只加载到更小编号——需加 ?max=124 或 ?only=编号";
               let line2 = "";
               if (SHOW_DIAG) {
                 line2 =
@@ -718,6 +718,15 @@
           setActive(visibleId);
         } else if (visibleId && activeId === visibleId && MANUAL_HIDDEN.has(visibleId)) {
           setActive(null);
+        } else if (
+          visibleId &&
+          activeId === visibleId &&
+          screenPanelEl &&
+          !MANUAL_HIDDEN.has(visibleId) &&
+          !screenPanelEl.classList.contains("is-visible")
+        ) {
+          // 叠层与识别状态偶发不同步时补一次，避免「已识别但无白框/无说明图」
+          setActive(visibleId);
         }
         // 不在「未识别」时每帧 setActive(null)：NFT 易抖动，会把白框/说明图立刻关掉
 
@@ -796,10 +805,10 @@
           tipEl.innerHTML =
             "请扫描展品图（<strong>仅编号 001–" +
             lastId +
-            "</strong> 有效，其它图未加载）" +
-            '<br><span style="font-size:13px;opacity:0.88;font-weight:normal">要识别全部 ' +
-            TOTAL_TARGETS +
-            ' 张：加 <code style="font-size:12px">?max=124</code>（可能卡顿）。识别异常时可试 <code style="font-size:12px">?only=001</code> 单图排查。</span>';
+            "</strong> 已加载；大于 " +
+            lastId +
+            " 的图<strong>当前页不会识别</strong>）" +
+            '<br><span style="font-size:13px;opacity:0.88;font-weight:normal">要扫 <strong>096、119</strong> 等：请在链接后加 <code style="font-size:12px">?max=124</code>（手机可能较慢或占内存），或只测一张 <code style="font-size:12px">?only=096</code>。卡顿可改小数字如 <code style="font-size:12px">?max=40</code>。</span>';
         } else {
           tipEl.textContent = "请扫描展品图片查看细节";
         }
