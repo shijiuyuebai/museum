@@ -307,11 +307,17 @@
       }
 
       (function ensureWorkerCameraUrl() {
-        window.__ARJS_WORKER_CAMERA_PATH = siteDirectoryPrefix() + "vendor/camera_para.dat";
+        // Worker 内 fetch 相对路径会相对于 blob/worker 根，易错；必须用整站绝对 URL
+        window.__ARJS_WORKER_CAMERA_PATH = new URL(
+          siteDirectoryPrefix() + "vendor/camera_para.dat",
+          window.location.origin + "/"
+        ).href;
       })();
 
-      function nftMarkerPathForWorker(id) {
-        return siteDirectoryPrefix() + "images/" + id;
+      /** NFT 描述文件基址（无后缀），供 Worker fetch；须为绝对 URL */
+      function nftDescriptorsAbsoluteBase(id) {
+        const rel = siteDirectoryPrefix() + "images/" + id;
+        return new URL(rel, window.location.origin + "/").href;
       }
 
       function displayJpgAbsoluteUrl(id) {
@@ -331,7 +337,7 @@
       /**
        * 同时注册的 NFT 过多时手机易 OOM；地址 ?max=N 可强制数量（1–124）。
        * ?only=7 或 ?only=007：只注册单张，用于电脑端排查识别。
-       * 未指定时：手机默认少量加载防崩溃；桌面默认 40（?max=124 全开）。
+       * 未指定时：手机默认少量加载防崩溃；桌面默认加载全部（?max= 可缩小）。
        */
       function getTargetIdsToLoad() {
         const params = new URLSearchParams(window.location.search);
@@ -510,9 +516,8 @@
 
       async function assertNftArtifactsReachable(sampleId) {
         const exts = [".fset", ".fset3", ".iset"];
-        const baseOrigin = new URL(window.location.href).origin + "/";
         for (let e = 0; e < exts.length; e += 1) {
-          const u = new URL(nftMarkerPathForWorker(sampleId) + exts[e], baseOrigin).href;
+          const u = nftDescriptorsAbsoluteBase(sampleId) + exts[e];
           let res = await fetch(u, { method: "HEAD", cache: "no-store" });
           if (res.status === 405 || res.status === 501) {
             res = await fetch(u, { method: "GET", cache: "no-store" });
@@ -584,7 +589,7 @@
 
           new THREEx.ArMarkerControls(arContext, markerRoot, {
             type: "nft",
-            descriptorsUrl: nftMarkerPathForWorker(id)
+            descriptorsUrl: nftDescriptorsAbsoluteBase(id)
           });
 
           const panel = buildDisplayPanel(textures[i]);
@@ -635,6 +640,11 @@
           return;
         }
         activeId = id;
+        const numForPanel = typeof id === "number" ? id : parseInt(String(id), 10);
+        const panelIdx = TARGET_IDS.indexOf(numForPanel);
+        if (panelIdx >= 0 && PANEL_GROUPS[panelIdx]) {
+          PANEL_GROUPS[panelIdx].visible = true;
+        }
         if (screenPanelEl && screenImgEl) {
           displayImgReqToken += 1;
           const token = displayImgReqToken;
