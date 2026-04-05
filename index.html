@@ -867,6 +867,23 @@
             }
             renderer.domElement.style.zIndex = "1";
             onResize();
+            (function scheduleNftVideoKick() {
+              const delays = [800, 2400, 5000];
+              for (let k = 0; k < delays.length; k += 1) {
+                setTimeout(function () {
+                  if (nftLoadSignalCount > 0) return;
+                  if (arjsVideoLoadedCount > 0) return;
+                  const el = arSource && arSource.domElement;
+                  if (!el) return;
+                  const w = el.videoWidth || el.clientWidth || 0;
+                  const h = el.videoHeight || el.clientHeight || 0;
+                  if (w < 3 || h < 3) return;
+                  window.dispatchEvent(
+                    new CustomEvent("arjs-video-loaded", { detail: { component: el } })
+                  );
+                }, delays[k]);
+              }
+            })();
             resolve();
           });
         });
