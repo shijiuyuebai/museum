@@ -288,11 +288,25 @@
       let scanHintFrame = 0;
       let nftLoadSignalCount = 0;
       let arjsVideoLoadedCount = 0;
+      /** Worker 内 loadNFTMarker / 相机初始化失败时由 vendor 补丁上报，便于手机无控制台时排查 */
+      let lastNftWorkerErr = "";
       window.addEventListener("arjs-nft-loaded", function () {
         nftLoadSignalCount += 1;
       });
       window.addEventListener("arjs-video-loaded", function () {
         arjsVideoLoadedCount += 1;
+      });
+      window.addEventListener("museum-ar-nft-worker-err", function (ev) {
+        const d = (ev && ev.detail) || {};
+        const phase = d.phase === "camera" ? "相机标定" : "NFT 数据";
+        lastNftWorkerErr = phase + "：" + String(d.msg || "").slice(0, 240);
+        const tip = document.getElementById("top-tip");
+        if (tip) {
+          tip.innerHTML =
+            '<span style="color:#ffb4b4;font-weight:700">识别引擎错误</span> ' +
+            lastNftWorkerErr +
+            '<br><span style="font-size:13px;opacity:0.88">请截图保存；可换 4G/5G 或关闭代理后刷新。加 <code>?diag=1</code> 可看更多状态。</span>';
+        }
       });
 
       /** 站点子路径前缀，如 museum/；避免 …/museum?xx 时相对 URL 错到根目录 */
@@ -732,6 +746,9 @@
                   "×" +
                   vh +
                   (vw < 2 || vh < 2 ? "（0=没出画）" : "");
+                if (lastNftWorkerErr) {
+                  line2 += " | " + lastNftWorkerErr;
+                }
               }
               hintEl.textContent = line1 + line2;
             }
@@ -917,8 +934,14 @@
               (e && e.message ? e.message : "网络错误") +
               "）。在大陆常见：请换 <strong>4G/5G</strong>、关代理，或将本站镜像到国内可访问地址。";
           }
+          const errBlock =
+            lastNftWorkerErr !== ""
+              ? "<br><span style=\"color:#ffb4b4;font-weight:700\">Worker 报错：</span>" +
+                lastNftWorkerErr
+              : "";
           const block =
             '<br><br><span style="color:#ffb4b4;font-weight:700">提示：NFT 仍未加载完成（计数为 0）</span>——此时不会识别任何图。' +
+            errBlock +
             "<br>" +
             extra;
           if (tipEl) tipEl.innerHTML = (tipEl.innerHTML || "") + block;
