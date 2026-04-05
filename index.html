@@ -158,6 +158,42 @@
     }
 
     /* 地址栏加 ?hint=1 时在画面下方显示识别状态（无需连电脑看控制台） */
+    /* 识别成功后用 DOM 叠说明图（部分机型 WebGL 叠加看不见，此层必显） */
+    #ar-screen-panel {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 23;
+      align-items: center;
+      justify-content: center;
+      padding: calc(56px + env(safe-area-inset-top, 0)) 14px calc(72px + env(safe-area-inset-bottom, 0));
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+
+    #ar-screen-panel.is-visible {
+      display: flex;
+    }
+
+    .ar-screen-frame {
+      max-width: min(92vw, 440px);
+      max-height: min(48vh, 400px);
+      border: 3px solid rgba(255, 255, 255, 0.95);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      background: #111;
+    }
+
+    #ar-screen-img {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: min(44vh, 360px);
+      object-fit: contain;
+      vertical-align: middle;
+    }
+
     #scan-hint {
       display: none;
       position: fixed;
@@ -180,6 +216,12 @@
   <div id="ar-container"></div>
   <div id="top-tip">请扫描展品图片查看细节</div>
   <div id="scan-hint" aria-live="polite"></div>
+
+  <div id="ar-screen-panel" aria-hidden="true">
+    <div class="ar-screen-frame">
+      <img id="ar-screen-img" alt="展品说明图" decoding="async" />
+    </div>
+  </div>
 
   <div id="loading">
     <div id="loading-card">
@@ -320,6 +362,8 @@
       const loadingTextEl = document.getElementById("loading-text");
       const bootEl = document.getElementById("boot");
       const startBtnEl = document.getElementById("start-btn");
+      const screenPanelEl = document.getElementById("ar-screen-panel");
+      const screenImgEl = document.getElementById("ar-screen-img");
 
       function pad3(num) {
         return String(num).padStart(3, "0");
@@ -539,11 +583,21 @@
         if (!id) {
           activeId = null;
           showCloseButton(false);
+          if (screenPanelEl) {
+            screenPanelEl.classList.remove("is-visible");
+            screenPanelEl.setAttribute("aria-hidden", "true");
+          }
+          if (screenImgEl) {
+            screenImgEl.removeAttribute("src");
+          }
           return;
         }
         activeId = id;
-        const idx = TARGET_IDS.indexOf(id);
-        if (idx >= 0) PANEL_GROUPS[idx].visible = true;
+        if (screenPanelEl && screenImgEl) {
+          screenImgEl.src = new URL("display/" + pad3(id) + ".jpg", window.location.href).href;
+          screenPanelEl.classList.add("is-visible");
+          screenPanelEl.setAttribute("aria-hidden", "false");
+        }
         showCloseButton(true);
       }
 
