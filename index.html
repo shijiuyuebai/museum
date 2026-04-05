@@ -219,9 +219,27 @@
       let arDebugLastVisible = null;
       let scanHintFrame = 0;
       let nftLoadSignalCount = 0;
+      let arjsVideoLoadedCount = 0;
       window.addEventListener("arjs-nft-loaded", function () {
         nftLoadSignalCount += 1;
       });
+      window.addEventListener("arjs-video-loaded", function () {
+        arjsVideoLoadedCount += 1;
+      });
+
+      /**
+       * AR.js Worker 用 origin + "/" + descriptorsUrl 拼 NFT 地址。
+       * 地址栏若是 …/museum（无尾斜杠），new URL("images/x", href) 会错成 /images/x，须按「目录」解析。
+       */
+      function nftMarkerPathForWorker(id) {
+        const path = new URL(window.location.href).pathname;
+        const segs = path.split("/").filter(Boolean);
+        if (segs.length === 0) return "images/" + id;
+        const last = segs[segs.length - 1];
+        if (last.indexOf(".") >= 0) segs.pop();
+        const prefix = segs.join("/");
+        return (prefix ? prefix + "/" : "") + "images/" + id;
+      }
 
       /** NFT 数量多时降低检测帧率，减轻多 Worker 积压（否则易「有画面但不识别」）。 */
       function nftDetectionRate(markerCount) {
@@ -398,9 +416,9 @@
 
       async function assertNftArtifactsReachable(sampleId) {
         const exts = [".fset", ".fset3", ".iset"];
-        const root = new URL(window.location.href);
+        const baseOrigin = new URL(window.location.href).origin + "/";
         for (let e = 0; e < exts.length; e += 1) {
-          const u = new URL("images/" + sampleId + exts[e], root).href;
+          const u = new URL(nftMarkerPathForWorker(sampleId) + exts[e], baseOrigin).href;
           let res = await fetch(u, { method: "HEAD", cache: "no-store" });
           if (res.status === 405 || res.status === 501) {
             res = await fetch(u, { method: "GET", cache: "no-store" });
@@ -472,9 +490,7 @@
 
           new THREEx.ArMarkerControls(arContext, markerRoot, {
             type: "nft",
-            // Worker 里用 origin + "/" + marker；不能传完整 https（库内正则在 github.io 上会失败，会拼成错误双 URL）
-            // 须传「站点根起的相对路径」无首斜杠，例如 museum/images/001
-            descriptorsUrl: new URL("images/" + id, window.location.href).pathname.replace(/^\/+/, "")
+            descriptorsUrl: nftMarkerPathForWorker(id)
           });
 
           const panel = buildDisplayPanel(textures[i]);
@@ -545,13 +561,15 @@
               let line2 = "";
               if (SHOW_DIAG) {
                 line2 =
-                  " | NFT加载信号×" +
+                  " | 视频就绪×" +
+                  arjsVideoLoadedCount +
+                  " | NFT加载×" +
                   nftLoadSignalCount +
-                  " | 摄像头画面 " +
+                  " | 画面 " +
                   vw +
                   "×" +
                   vh +
-                  (vw < 2 || vh < 2 ? "（若为0说明视频没真正出画）" : "");
+                  (vw < 2 || vh < 2 ? "（0=没出画）" : "");
               }
               hintEl.textContent = line1 + line2;
             }
