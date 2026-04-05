@@ -599,71 +599,6 @@
         return null;
       }
 
-      /** 用 fetch→blob 再赋给 img，避免换 src 时误触发 error、部分环境直接挂 URL 不渲染 */
-      async function showOverlayDisplayImage(id) {
-        if (!screenImgEl) return;
-        displayImgReqToken += 1;
-        const token = displayImgReqToken;
-        const url = displayJpgAbsoluteUrl(id);
-        if (screenErrEl) {
-          screenErrEl.style.display = "none";
-          screenErrEl.textContent = "";
-        }
-        screenImgEl.style.display = "block";
-        screenImgEl.style.opacity = "1";
-        const n = typeof id === "number" ? id : parseInt(String(id), 10);
-        screenImgEl.alt = "展品 " + pad3(n) + " 说明图";
-
-        if (displayOverlayBlobUrl) {
-          URL.revokeObjectURL(displayOverlayBlobUrl);
-          displayOverlayBlobUrl = null;
-        }
-        screenImgEl.removeAttribute("src");
-
-        try {
-          const res = await fetch(url, { cache: "force-cache", credentials: "same-origin" });
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const blob = await res.blob();
-          if (token !== displayImgReqToken) return;
-          if (!blob || blob.size < 32) throw new Error("文件无效或过小");
-          displayOverlayBlobUrl = URL.createObjectURL(blob);
-          screenImgEl.src = displayOverlayBlobUrl;
-          if (screenImgEl.decode) {
-            await screenImgEl.decode().catch(function () {});
-          }
-        } catch (e1) {
-          if (token !== displayImgReqToken) return;
-          try {
-            screenImgEl.src = url;
-            await new Promise(function (resolve, reject) {
-              screenImgEl.onload = function () {
-                resolve();
-              };
-              screenImgEl.onerror = function () {
-                reject(new Error("img"));
-              };
-            });
-          } catch (e2) {
-            if (token !== displayImgReqToken) return;
-            if (screenErrEl) {
-              screenErrEl.style.display = "block";
-              screenErrEl.textContent =
-                "说明图无法显示：" +
-                url +
-                "。fetch：" +
-                (e1 && e1.message ? e1.message : e1) +
-                "；直接加载：" +
-                (e2 && e2.message ? e2.message : e2);
-            }
-            screenImgEl.style.display = "none";
-            return;
-          }
-        }
-        if (token !== displayImgReqToken) return;
-        screenImgEl.style.display = "block";
-        if (screenErrEl) screenErrEl.style.display = "none";
-      }
-
       function setActive(id) {
         hideAllPanels();
         if (!id) {
@@ -676,6 +611,7 @@
           }
           if (screenPanelEl) {
             screenPanelEl.classList.remove("is-visible");
+            screenPanelEl.style.display = "none";
             screenPanelEl.setAttribute("aria-hidden", "true");
           }
           if (screenImgEl) {
@@ -691,9 +627,40 @@
         }
         activeId = id;
         if (screenPanelEl && screenImgEl) {
+          displayImgReqToken += 1;
+          const token = displayImgReqToken;
+          const url = displayJpgAbsoluteUrl(id);
           screenPanelEl.classList.add("is-visible");
+          screenPanelEl.style.display = "flex";
           screenPanelEl.setAttribute("aria-hidden", "false");
-          void showOverlayDisplayImage(id);
+          if (screenErrEl) {
+            screenErrEl.style.display = "none";
+            screenErrEl.textContent = "";
+          }
+          const n = typeof id === "number" ? id : parseInt(String(id), 10);
+          screenImgEl.alt = "展品 " + pad3(n) + " 说明图";
+          screenImgEl.style.display = "block";
+          if (displayOverlayBlobUrl) {
+            URL.revokeObjectURL(displayOverlayBlobUrl);
+            displayOverlayBlobUrl = null;
+          }
+          screenImgEl.src = url;
+          void (async function () {
+            try {
+              const res = await fetch(url, { cache: "force-cache", credentials: "same-origin" });
+              if (!res.ok || token !== displayImgReqToken) return;
+              const blob = await res.blob();
+              if (token !== displayImgReqToken || !blob || blob.size < 32) return;
+              if (displayOverlayBlobUrl) {
+                URL.revokeObjectURL(displayOverlayBlobUrl);
+              }
+              displayOverlayBlobUrl = URL.createObjectURL(blob);
+              if (token !== displayImgReqToken) return;
+              screenImgEl.src = displayOverlayBlobUrl;
+            } catch (e) {
+              /* 保留上面已设的直连 src */
+            }
+          })();
         }
         showCloseButton(true);
       }
@@ -751,9 +718,8 @@
           setActive(visibleId);
         } else if (visibleId && activeId === visibleId && MANUAL_HIDDEN.has(visibleId)) {
           setActive(null);
-        } else if (!visibleId) {
-          setActive(null);
         }
+        // 不在「未识别」时每帧 setActive(null)：NFT 易抖动，会把白框/说明图立刻关掉
 
         renderer.render(scene, camera);
       }
