@@ -359,7 +359,9 @@
       function buildDisplayPanel(texture) {
         const panelGroup = new THREE.Group();
         panelGroup.visible = false;
-        panelGroup.position.set(0, 0.9, 0);
+        // 略抬高、沿法线前移，避免在画面外或贴图平面内被深度裁掉
+        panelGroup.position.set(0, 0.45, 0.12);
+        panelGroup.scale.set(2.2, 2.2, 2.2);
 
         const frameW = 1.2;
         const frameH = 0.9;
@@ -367,34 +369,42 @@
         const frameMat = new THREE.MeshBasicMaterial({
           color: 0xffffff,
           transparent: true,
-          opacity: 0.45,
-          side: THREE.DoubleSide
+          opacity: 0.55,
+          side: THREE.DoubleSide,
+          depthTest: false,
+          depthWrite: false
         });
         const frameMesh = new THREE.Mesh(frameGeom, frameMat);
-        frameMesh.renderOrder = 1;
+        frameMesh.renderOrder = 10;
+        frameMesh.frustumCulled = false;
         panelGroup.add(frameMesh);
 
         const borderGeom = new THREE.EdgesGeometry(frameGeom);
         const borderMat = new THREE.LineBasicMaterial({
           color: 0xffffff,
           transparent: true,
-          opacity: 0.9
+          opacity: 0.95,
+          depthTest: false,
+          depthWrite: false
         });
         const border = new THREE.LineSegments(borderGeom, borderMat);
-        border.renderOrder = 2;
-        border.position.z = 0.001;
+        border.renderOrder = 11;
+        border.position.z = 0.002;
         panelGroup.add(border);
 
         const imgMat = new THREE.MeshBasicMaterial({
           map: texture,
           transparent: true,
           opacity: 1,
-          side: THREE.DoubleSide
+          side: THREE.DoubleSide,
+          depthTest: false,
+          depthWrite: false
         });
         const imgGeom = new THREE.PlaneGeometry(1.05, 0.75);
         const imgMesh = new THREE.Mesh(imgGeom, imgMat);
-        imgMesh.position.z = 0.002;
-        imgMesh.renderOrder = 3;
+        imgMesh.position.z = 0.004;
+        imgMesh.renderOrder = 12;
+        imgMesh.frustumCulled = false;
         panelGroup.add(imgMesh);
 
         return panelGroup;
