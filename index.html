@@ -227,6 +227,16 @@
         arjsVideoLoadedCount += 1;
       });
 
+      (function ensureWorkerCameraUrl() {
+        const path = new URL(window.location.href).pathname;
+        const segs = path.split("/").filter(Boolean);
+        if (segs.length > 0 && segs[segs.length - 1].indexOf(".") >= 0) {
+          segs.pop();
+        }
+        const prefix = segs.join("/");
+        window.__ARJS_WORKER_CAMERA_PATH = (prefix ? prefix + "/" : "") + "vendor/camera_para.dat";
+      })();
+
       /**
        * AR.js Worker 用 origin + "/" + descriptorsUrl 拼 NFT 地址。
        * 地址栏若是 …/museum（无尾斜杠），new URL("images/x", href) 会错成 /images/x，须按「目录」解析。
