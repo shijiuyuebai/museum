@@ -780,17 +780,14 @@
           throw new Error("未找到可用识别文件，请先生成 images/*.fset 文件");
         }
 
-        // 手机 + 只认一张图时略提高检测分辨率，减轻「有画面但一直尚未识别」
-        const nftCanvasW = targetIds.length === 1 && touchLike ? 960 : 640;
-        const nftCanvasH = targetIds.length === 1 && touchLike ? 720 : 480;
-
         arContext = new THREEx.ArToolkitContext({
           // 传入 Uint8Array 时 AR.js 内部不再发 HTTP 请求，可避免误用 raw.githubusercontent.com 等失效地址
+          // 固定 640×480：改大会与相机标定/AR.js NFT 管线不匹配，曾导致单张模式也无法识别
           cameraParametersUrl: cameraParametersData,
           detectionMode: "mono",
           maxDetectionRate: nftDetectionRate(targetIds.length),
-          canvasWidth: nftCanvasW,
-          canvasHeight: nftCanvasH
+          canvasWidth: 640,
+          canvasHeight: 480
         });
 
         await new Promise((resolve, reject) => {
