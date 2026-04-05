@@ -156,11 +156,30 @@
       padding: 13px 22px;
       font-size: 16px;
     }
+
+    /* 地址栏加 ?hint=1 时在画面下方显示识别状态（无需连电脑看控制台） */
+    #scan-hint {
+      display: none;
+      position: fixed;
+      left: 8px;
+      right: 8px;
+      bottom: calc(56px + env(safe-area-inset-bottom, 0));
+      z-index: 22;
+      padding: 10px 12px;
+      font-size: 14px;
+      line-height: 1.4;
+      text-align: center;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.72);
+      border-radius: 10px;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
   <div id="ar-container"></div>
   <div id="top-tip">请扫描展品图片查看细节</div>
+  <div id="scan-hint" aria-live="polite"></div>
 
   <div id="loading">
     <div id="loading-card">
@@ -193,8 +212,11 @@
   <script>
     (function () {
       const TOTAL_TARGETS = 124;
-      const AR_DEBUG = new URLSearchParams(window.location.search).get("debug") === "1";
+      const URL_PARAMS = new URLSearchParams(window.location.search);
+      const AR_DEBUG = URL_PARAMS.get("debug") === "1";
+      const SHOW_SCAN_HINT = AR_DEBUG || URL_PARAMS.get("hint") === "1";
       let arDebugLastVisible = null;
+      let scanHintFrame = 0;
 
       /** NFT 数量多时降低检测帧率，减轻多 Worker 积压（否则易「有画面但不识别」）。 */
       function nftDetectionRate(markerCount) {
@@ -482,6 +504,17 @@
           arDebugLastVisible = visibleId;
           console.log("[MuseumAR] 当前可见标记编号:", visibleId);
         }
+        if (SHOW_SCAN_HINT) {
+          scanHintFrame += 1;
+          if (scanHintFrame % 6 === 0) {
+            const hintEl = document.getElementById("scan-hint");
+            if (hintEl) {
+              hintEl.textContent = visibleId
+                ? "已识别到编号 " + pad3(visibleId) + "（若看不到说明图，截屏发给维护者）"
+                : "尚未识别：请把「已加载编号」对应图片放大、正对、光线亮一点";
+            }
+          }
+        }
         if (visibleId && visibleId !== activeId) {
           MANUAL_HIDDEN.delete(visibleId);
           setActive(visibleId);
@@ -549,11 +582,18 @@
 
         const tipEl = document.getElementById("top-tip");
         const pageParams = new URLSearchParams(window.location.search);
+        const scanHintEl = document.getElementById("scan-hint");
+        if (SHOW_SCAN_HINT && scanHintEl) {
+          scanHintEl.style.display = "block";
+        }
         if (pageParams.get("only")) {
+          const sampleImg = new URL("display/" + targetIds[0] + ".jpg", window.location.href).href;
           tipEl.innerHTML =
-            "调试模式：仅加载 <strong>" +
+            "本页<strong>只识别 " +
             targetIds[0] +
-            "</strong> 号识别图；正常使用时去掉地址栏里的 <code style=\"font-size:12px\">?only=</code>";
+            " 号</strong>。请用另一台设备<strong>全屏打开</strong>下面这张图，再拿本机去扫：<br><span style=\"font-size:12px;word-break:break-all;opacity:0.9\">" +
+            sampleImg +
+            "</span><br><span style=\"font-size:13px;opacity:0.88\">需要看识别状态可在地址后加 <code style=\"font-size:12px\">&amp;hint=1</code></span>";
         } else if (targetIds.length < TOTAL_TARGETS) {
           const lastId = targetIds[targetIds.length - 1];
           tipEl.innerHTML =
@@ -586,6 +626,13 @@
             if (v && v.parentNode) {
               containerEl.insertBefore(v, renderer.domElement);
               v.style.zIndex = "0";
+              v.setAttribute("playsinline", "");
+              v.setAttribute("webkit-playsinline", "");
+              v.playsInline = true;
+              v.muted = true;
+              if (v.play) {
+                v.play().catch(function () {});
+              }
             }
             renderer.domElement.style.zIndex = "1";
             onResize();
