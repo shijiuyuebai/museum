@@ -180,6 +180,8 @@
     .ar-screen-frame {
       max-width: min(92vw, 440px);
       max-height: min(48vh, 400px);
+      min-height: 120px;
+      min-width: 120px;
       border: 3px solid rgba(255, 255, 255, 0.95);
       border-radius: 12px;
       overflow: hidden;
@@ -203,9 +205,9 @@
       display: block;
       width: 100%;
       height: auto;
+      min-height: 80px;
       max-height: min(44vh, 360px);
       object-fit: contain;
-      vertical-align: middle;
     }
 
     #scan-hint {
@@ -233,7 +235,7 @@
 
   <div id="ar-screen-panel" aria-hidden="true">
     <div class="ar-screen-frame">
-      <img id="ar-screen-img" alt="展品说明图" decoding="async" />
+      <img id="ar-screen-img" alt="展品说明图" decoding="async" referrerpolicy="no-referrer" />
     </div>
     <p id="ar-screen-err" role="alert"></p>
   </div>
@@ -381,21 +383,8 @@
       const screenPanelEl = document.getElementById("ar-screen-panel");
       const screenImgEl = document.getElementById("ar-screen-img");
       const screenErrEl = document.getElementById("ar-screen-err");
-      if (screenImgEl && screenErrEl) {
-        screenImgEl.addEventListener("load", function () {
-          screenErrEl.style.display = "none";
-          screenImgEl.style.display = "block";
-        });
-        screenImgEl.addEventListener("error", function () {
-          screenErrEl.style.display = "block";
-          screenErrEl.textContent =
-            "说明图未加载。请确认已部署 display/" +
-            pad3(activeId || 0) +
-            ".jpg。若地址栏是 …/museum?only= 这种（museum 后没有 /），请改成 …/museum/?only= 再试。当前请求：" +
-            (screenImgEl.src || "");
-          screenImgEl.style.display = "none";
-        });
-      }
+      let displayOverlayBlobUrl = null;
+      let displayImgReqToken = 0;
 
       function pad3(num) {
         return String(num).padStart(3, "0");
@@ -610,17 +599,89 @@
         return null;
       }
 
+      /** 用 fetch→blob 再赋给 img，避免换 src 时误触发 error、部分环境直接挂 URL 不渲染 */
+      async function showOverlayDisplayImage(id) {
+        if (!screenImgEl) return;
+        displayImgReqToken += 1;
+        const token = displayImgReqToken;
+        const url = displayJpgAbsoluteUrl(id);
+        if (screenErrEl) {
+          screenErrEl.style.display = "none";
+          screenErrEl.textContent = "";
+        }
+        screenImgEl.style.display = "block";
+        screenImgEl.style.opacity = "1";
+        const n = typeof id === "number" ? id : parseInt(String(id), 10);
+        screenImgEl.alt = "展品 " + pad3(n) + " 说明图";
+
+        if (displayOverlayBlobUrl) {
+          URL.revokeObjectURL(displayOverlayBlobUrl);
+          displayOverlayBlobUrl = null;
+        }
+        screenImgEl.removeAttribute("src");
+
+        try {
+          const res = await fetch(url, { cache: "force-cache", credentials: "same-origin" });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const blob = await res.blob();
+          if (token !== displayImgReqToken) return;
+          if (!blob || blob.size < 32) throw new Error("文件无效或过小");
+          displayOverlayBlobUrl = URL.createObjectURL(blob);
+          screenImgEl.src = displayOverlayBlobUrl;
+          if (screenImgEl.decode) {
+            await screenImgEl.decode().catch(function () {});
+          }
+        } catch (e1) {
+          if (token !== displayImgReqToken) return;
+          try {
+            screenImgEl.src = url;
+            await new Promise(function (resolve, reject) {
+              screenImgEl.onload = function () {
+                resolve();
+              };
+              screenImgEl.onerror = function () {
+                reject(new Error("img"));
+              };
+            });
+          } catch (e2) {
+            if (token !== displayImgReqToken) return;
+            if (screenErrEl) {
+              screenErrEl.style.display = "block";
+              screenErrEl.textContent =
+                "说明图无法显示：" +
+                url +
+                "。fetch：" +
+                (e1 && e1.message ? e1.message : e1) +
+                "；直接加载：" +
+                (e2 && e2.message ? e2.message : e2);
+            }
+            screenImgEl.style.display = "none";
+            return;
+          }
+        }
+        if (token !== displayImgReqToken) return;
+        screenImgEl.style.display = "block";
+        if (screenErrEl) screenErrEl.style.display = "none";
+      }
+
       function setActive(id) {
         hideAllPanels();
         if (!id) {
           activeId = null;
           showCloseButton(false);
+          displayImgReqToken += 1;
+          if (displayOverlayBlobUrl) {
+            URL.revokeObjectURL(displayOverlayBlobUrl);
+            displayOverlayBlobUrl = null;
+          }
           if (screenPanelEl) {
             screenPanelEl.classList.remove("is-visible");
             screenPanelEl.setAttribute("aria-hidden", "true");
           }
           if (screenImgEl) {
             screenImgEl.removeAttribute("src");
+            screenImgEl.onload = null;
+            screenImgEl.onerror = null;
           }
           if (screenErrEl) {
             screenErrEl.style.display = "none";
@@ -630,13 +691,9 @@
         }
         activeId = id;
         if (screenPanelEl && screenImgEl) {
-          if (screenErrEl) {
-            screenErrEl.style.display = "none";
-          }
-          screenImgEl.style.display = "block";
-          screenImgEl.src = displayJpgAbsoluteUrl(id);
           screenPanelEl.classList.add("is-visible");
           screenPanelEl.setAttribute("aria-hidden", "false");
+          void showOverlayDisplayImage(id);
         }
         showCloseButton(true);
       }
