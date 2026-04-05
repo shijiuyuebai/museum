@@ -173,6 +173,8 @@
 
     #ar-screen-panel.is-visible {
       display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
 
     .ar-screen-frame {
@@ -183,6 +185,18 @@
       overflow: hidden;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
       background: #111;
+    }
+
+    #ar-screen-err {
+      display: none;
+      max-width: min(92vw, 400px);
+      padding: 14px 16px;
+      font-size: 14px;
+      line-height: 1.45;
+      color: #fff;
+      background: rgba(180, 40, 40, 0.92);
+      border-radius: 10px;
+      word-break: break-all;
     }
 
     #ar-screen-img {
@@ -221,6 +235,7 @@
     <div class="ar-screen-frame">
       <img id="ar-screen-img" alt="展品说明图" decoding="async" />
     </div>
+    <p id="ar-screen-err" role="alert"></p>
   </div>
 
   <div id="loading">
@@ -269,28 +284,29 @@
         arjsVideoLoadedCount += 1;
       });
 
-      (function ensureWorkerCameraUrl() {
+      /** 站点子路径前缀，如 museum/；避免 …/museum?xx 时相对 URL 错到根目录 */
+      function siteDirectoryPrefix() {
         const path = new URL(window.location.href).pathname;
         const segs = path.split("/").filter(Boolean);
         if (segs.length > 0 && segs[segs.length - 1].indexOf(".") >= 0) {
           segs.pop();
         }
         const prefix = segs.join("/");
-        window.__ARJS_WORKER_CAMERA_PATH = (prefix ? prefix + "/" : "") + "vendor/camera_para.dat";
+        return prefix ? prefix + "/" : "";
+      }
+
+      (function ensureWorkerCameraUrl() {
+        window.__ARJS_WORKER_CAMERA_PATH = siteDirectoryPrefix() + "vendor/camera_para.dat";
       })();
 
-      /**
-       * AR.js Worker 用 origin + "/" + descriptorsUrl 拼 NFT 地址。
-       * 地址栏若是 …/museum（无尾斜杠），new URL("images/x", href) 会错成 /images/x，须按「目录」解析。
-       */
       function nftMarkerPathForWorker(id) {
-        const path = new URL(window.location.href).pathname;
-        const segs = path.split("/").filter(Boolean);
-        if (segs.length === 0) return "images/" + id;
-        const last = segs[segs.length - 1];
-        if (last.indexOf(".") >= 0) segs.pop();
-        const prefix = segs.join("/");
-        return (prefix ? prefix + "/" : "") + "images/" + id;
+        return siteDirectoryPrefix() + "images/" + id;
+      }
+
+      function displayJpgAbsoluteUrl(id) {
+        const n = typeof id === "number" ? id : parseInt(String(id), 10);
+        const rel = siteDirectoryPrefix() + "display/" + pad3(n) + ".jpg";
+        return new URL(rel, window.location.origin + "/").href;
       }
 
       /** NFT 数量多时降低检测帧率，减轻多 Worker 积压（否则易「有画面但不识别」）。 */
@@ -364,6 +380,22 @@
       const startBtnEl = document.getElementById("start-btn");
       const screenPanelEl = document.getElementById("ar-screen-panel");
       const screenImgEl = document.getElementById("ar-screen-img");
+      const screenErrEl = document.getElementById("ar-screen-err");
+      if (screenImgEl && screenErrEl) {
+        screenImgEl.addEventListener("load", function () {
+          screenErrEl.style.display = "none";
+          screenImgEl.style.display = "block";
+        });
+        screenImgEl.addEventListener("error", function () {
+          screenErrEl.style.display = "block";
+          screenErrEl.textContent =
+            "说明图未加载。请确认已部署 display/" +
+            pad3(activeId || 0) +
+            ".jpg。若地址栏是 …/museum?only= 这种（museum 后没有 /），请改成 …/museum/?only= 再试。当前请求：" +
+            (screenImgEl.src || "");
+          screenImgEl.style.display = "none";
+        });
+      }
 
       function pad3(num) {
         return String(num).padStart(3, "0");
@@ -530,7 +562,7 @@
         for (let i = 0; i < targetIds.length; i += batchSize) {
           const slice = targetIds.slice(i, i + batchSize);
           const batch = await Promise.all(
-            slice.map((id) => loadTexture("display/" + id + ".jpg"))
+            slice.map((id) => loadTexture(displayJpgAbsoluteUrl(id)))
           );
           for (let j = 0; j < batch.length; j += 1) {
             textures.push(batch[j]);
@@ -590,11 +622,19 @@
           if (screenImgEl) {
             screenImgEl.removeAttribute("src");
           }
+          if (screenErrEl) {
+            screenErrEl.style.display = "none";
+            screenErrEl.textContent = "";
+          }
           return;
         }
         activeId = id;
         if (screenPanelEl && screenImgEl) {
-          screenImgEl.src = new URL("display/" + pad3(id) + ".jpg", window.location.href).href;
+          if (screenErrEl) {
+            screenErrEl.style.display = "none";
+          }
+          screenImgEl.style.display = "block";
+          screenImgEl.src = displayJpgAbsoluteUrl(id);
           screenPanelEl.classList.add("is-visible");
           screenPanelEl.setAttribute("aria-hidden", "false");
         }
