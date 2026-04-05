@@ -472,8 +472,9 @@
 
           new THREEx.ArMarkerControls(arContext, markerRoot, {
             type: "nft",
-            // Worker 内相对路径会相对 blob: 失效，导致永不 endLoading、NFT 信号始终为 0
-            descriptorsUrl: new URL("images/" + id, window.location.href).href
+            // Worker 里用 origin + "/" + marker；不能传完整 https（库内正则在 github.io 上会失败，会拼成错误双 URL）
+            // 须传「站点根起的相对路径」无首斜杠，例如 museum/images/001
+            descriptorsUrl: new URL("images/" + id, window.location.href).pathname.replace(/^\/+/, "")
           });
 
           const panel = buildDisplayPanel(textures[i]);
