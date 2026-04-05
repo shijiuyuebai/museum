@@ -275,6 +275,15 @@
       const AR_DEBUG = URL_PARAMS.get("debug") === "1";
       const SHOW_DIAG = URL_PARAMS.get("diag") === "1";
       const SHOW_SCAN_HINT = AR_DEBUG || URL_PARAMS.get("hint") === "1" || SHOW_DIAG;
+
+      /** ?only=096 时返回 "096"，供底部提示用 */
+      function onlyModePaddedId() {
+        const raw = new URLSearchParams(window.location.search).get("only");
+        if (raw === null || raw === "") return null;
+        const n = parseInt(raw, 10);
+        if (Number.isNaN(n) || n < 1 || n > TOTAL_TARGETS) return null;
+        return String(n).padStart(3, "0");
+      }
       let arDebugLastVisible = null;
       let scanHintFrame = 0;
       let nftLoadSignalCount = 0;
@@ -693,9 +702,14 @@
               const vid = arSource && arSource.domElement;
               const vw = vid && vid.videoWidth ? vid.videoWidth : 0;
               const vh = vid && vid.videoHeight ? vid.videoHeight : 0;
+              const onlyPad = onlyModePaddedId();
               let line1 = visibleId
                 ? "已识别到编号 " + pad3(visibleId)
-                : "尚未识别：图要大、要亮；横屏试试。若扫的是 041/096 等「大号」，请看顶栏是否只加载到更小编号——需加 ?max=124 或 ?only=编号";
+                : onlyPad
+                  ? "尚未识别：本页只认 " +
+                    onlyPad +
+                    " 号。摄像头里必须是「和官网展品图同一张」——请用另一台手机/电脑全屏打开顶栏里的那张图再扫；约半米远、少手抖、避开反光。"
+                  : "尚未识别：图要大、要亮；横屏试试。若扫大号展品，请看顶栏是否只加载到更小编号——需加 ?max=124 或 ?only=编号";
               let line2 = "";
               if (SHOW_DIAG) {
                 line2 =
@@ -766,13 +780,17 @@
           throw new Error("未找到可用识别文件，请先生成 images/*.fset 文件");
         }
 
+        // 手机 + 只认一张图时略提高检测分辨率，减轻「有画面但一直尚未识别」
+        const nftCanvasW = targetIds.length === 1 && touchLike ? 960 : 640;
+        const nftCanvasH = targetIds.length === 1 && touchLike ? 720 : 480;
+
         arContext = new THREEx.ArToolkitContext({
           // 传入 Uint8Array 时 AR.js 内部不再发 HTTP 请求，可避免误用 raw.githubusercontent.com 等失效地址
           cameraParametersUrl: cameraParametersData,
           detectionMode: "mono",
           maxDetectionRate: nftDetectionRate(targetIds.length),
-          canvasWidth: 640,
-          canvasHeight: 480
+          canvasWidth: nftCanvasW,
+          canvasHeight: nftCanvasH
         });
 
         await new Promise((resolve, reject) => {
