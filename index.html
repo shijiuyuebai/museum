@@ -214,9 +214,14 @@
       const TOTAL_TARGETS = 124;
       const URL_PARAMS = new URLSearchParams(window.location.search);
       const AR_DEBUG = URL_PARAMS.get("debug") === "1";
-      const SHOW_SCAN_HINT = AR_DEBUG || URL_PARAMS.get("hint") === "1";
+      const SHOW_DIAG = URL_PARAMS.get("diag") === "1";
+      const SHOW_SCAN_HINT = AR_DEBUG || URL_PARAMS.get("hint") === "1" || SHOW_DIAG;
       let arDebugLastVisible = null;
       let scanHintFrame = 0;
+      let nftLoadSignalCount = 0;
+      window.addEventListener("arjs-nft-loaded", function () {
+        nftLoadSignalCount += 1;
+      });
 
       /** NFT 数量多时降低检测帧率，减轻多 Worker 积压（否则易「有画面但不识别」）。 */
       function nftDetectionRate(markerCount) {
@@ -374,6 +379,23 @@
       }
 
       /** 启动前检查首个 NFT 是否可访问；否则摄像头正常也会永远识别不到。 */
+      async function assertNftFileNotLfsPointer(url, labelForError) {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength < 400) {
+          const head = new TextDecoder("utf-8", { fatal: false }).decode(
+            new Uint8Array(buf, 0, Math.min(200, buf.byteLength))
+          );
+          if (head.indexOf("git-lfs.github.com/spec") !== -1) {
+            throw new Error(
+              labelForError +
+                " 在线上只是 Git LFS 指针小文件，不是真实识别数据，手机永远会「尚未识别」。请在电脑用 git lfs push 把大文件推上去，或不用 LFS、直接把完整 .fset/.fset3/.iset 提交进仓库。"
+            );
+          }
+        }
+      }
+
       async function assertNftArtifactsReachable(sampleId) {
         const exts = [".fset", ".fset3", ".iset"];
         const root = new URL(window.location.href);
@@ -391,6 +413,9 @@
                 res.status +
                 "）。请确认已部署 images 下 .fset/.fset3/.iset；若手机提示无法打开整站，多为网络访问 github.io 受阻，请换网络或镜像部署。"
             );
+          }
+          if (exts[e] === ".fset") {
+            await assertNftFileNotLfsPointer(u, u);
           }
         }
       }
@@ -509,9 +534,24 @@
           if (scanHintFrame % 6 === 0) {
             const hintEl = document.getElementById("scan-hint");
             if (hintEl) {
-              hintEl.textContent = visibleId
-                ? "已识别到编号 " + pad3(visibleId) + "（若看不到说明图，截屏发给维护者）"
-                : "尚未识别：请把「已加载编号」对应图片放大、正对、光线亮一点";
+              const vid = arSource && arSource.domElement;
+              const vw = vid && vid.videoWidth ? vid.videoWidth : 0;
+              const vh = vid && vid.videoHeight ? vid.videoHeight : 0;
+              let line1 = visibleId
+                ? "已识别到编号 " + pad3(visibleId)
+                : "尚未识别：图要大、要亮；横屏拿手机试试；确认扫的是当前页「只识别」的那张编号";
+              let line2 = "";
+              if (SHOW_DIAG) {
+                line2 =
+                  " | NFT加载信号×" +
+                  nftLoadSignalCount +
+                  " | 摄像头画面 " +
+                  vw +
+                  "×" +
+                  vh +
+                  (vw < 2 || vh < 2 ? "（若为0说明视频没真正出画）" : "");
+              }
+              hintEl.textContent = line1 + line2;
             }
           }
         }
@@ -593,7 +633,7 @@
             targetIds[0] +
             " 号</strong>。请用另一台设备<strong>全屏打开</strong>下面这张图，再拿本机去扫：<br><span style=\"font-size:12px;word-break:break-all;opacity:0.9\">" +
             sampleImg +
-            "</span><br><span style=\"font-size:13px;opacity:0.88\">需要看识别状态可在地址后加 <code style=\"font-size:12px\">&amp;hint=1</code></span>";
+            "</span><br><span style=\"font-size:13px;opacity:0.88\">状态条：<code style=\"font-size:12px\">&amp;hint=1</code>；排查：<code style=\"font-size:12px\">&amp;diag=1</code>（一起看）</span>";
         } else if (targetIds.length < TOTAL_TARGETS) {
           const lastId = targetIds[targetIds.length - 1];
           tipEl.innerHTML =
