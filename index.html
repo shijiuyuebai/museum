@@ -873,6 +873,39 @@
 
         hideLoading();
         animate();
+
+        const nftProbeBase = nftDescriptorsAbsoluteBase(targetIds[0]);
+        let nftWatchdogUiDone = false;
+        setTimeout(async function () {
+          if (nftLoadSignalCount > 0 || nftWatchdogUiDone) return;
+          nftWatchdogUiDone = true;
+          let extra = "";
+          try {
+            let res = await fetch(nftProbeBase + ".fset", { method: "HEAD", cache: "no-store" });
+            if (res.status === 405 || res.status === 501) {
+              res = await fetch(nftProbeBase + ".fset", { method: "GET", cache: "no-store" });
+            }
+            extra =
+              "本机访问「" +
+              nftProbeBase +
+              ".fset」结果：<strong>HTTP " +
+              res.status +
+              "</strong>。" +
+              (res.ok
+                ? " 文件能连上，若计数仍为 0，请换 Chrome、关广告拦截后强刷。"
+                : " 识别数据拉取失败，多为网络访问不了 GitHub Pages。");
+          } catch (e) {
+            extra =
+              "本机连不上 NFT 文件（" +
+              (e && e.message ? e.message : "网络错误") +
+              "）。在大陆常见：请换 <strong>4G/5G</strong>、关代理，或将本站镜像到国内可访问地址。";
+          }
+          const block =
+            '<br><br><span style="color:#ffb4b4;font-weight:700">提示：NFT 仍未加载完成（计数为 0）</span>——此时不会识别任何图。' +
+            "<br>" +
+            extra;
+          if (tipEl) tipEl.innerHTML = (tipEl.innerHTML || "") + block;
+        }, 10000);
       }
 
       closeBtnEl.addEventListener("click", () => {
